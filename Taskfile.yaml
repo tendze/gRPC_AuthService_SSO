@@ -5,3 +5,7 @@ tasks:
     desc: "performs data migrations"
     cmds:
       - go run ./cmd/migrator --storage-path=./storage/sso.db --migrations-path=./migrations
+  auth:
+    desc: "starts grpc auth service"
+    cmds:
+      - go run ./cmd/sso --config=./config/local.yaml
