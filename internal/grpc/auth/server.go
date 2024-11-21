@@ -3,11 +3,14 @@ package auth
 import (
 	"context"
 	"errors"
-	ssov1 "github.com/tendze/gRPC_AuthService/gen/proto/sso"
+	ssov1 "github.com/tendze/gRPC_AuthService_Proto/gen/go/sso"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sso/internal/storage"
+	"sso/internal/domain/models"
+	"sso/internal/lib/jwt"
+	"sso/internal/services/auth"
+	"strconv"
 )
 
 type Auth interface {
@@ -25,6 +28,8 @@ type Auth interface {
 	) (userID int64, err error)
 
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
+
+	GetApp(ctx context.Context, appID int) (models.App, error)
 }
 
 type serverAPI struct {
@@ -44,10 +49,9 @@ func (s *serverAPI) Login(
 	if err != nil {
 		return nil, err
 	}
-
 	token, err := s.auth.Login(ctx, req.GetEmail(), req.GetPassword(), int(req.GetAppId()))
 	if err != nil {
-		if errors.Is(err, storage.ErrInvalidCredentials) {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
 			return nil, status.Error(codes.InvalidArgument, "incorrect login or password")
 		}
 		return nil, status.Error(codes.Internal, "internal error")
@@ -69,8 +73,8 @@ func (s *serverAPI) Register(
 	userID, err := s.auth.RegisterNewUser(ctx, req.GetEmail(), req.GetPassword())
 
 	if err != nil {
-		if errors.Is(err, storage.ErrUserExists) {
-			return nil, status.Error(codes.AlreadyExists, "incorrect login or password")
+		if errors.Is(err, auth.ErrUserExists) {
+			return nil, status.Error(codes.AlreadyExists, "user already exists")
 		}
 		return nil, status.Error(codes.Internal, "internal error")
 	}
@@ -90,7 +94,7 @@ func (s *serverAPI) IsAdmin(
 	}
 	isAdmin, err := s.auth.IsAdmin(ctx, req.GetUserId())
 	if err != nil {
-		if errors.Is(err, storage.ErrUserNotFound) {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
 		}
 		return nil, status.Error(codes.Internal, "internal error")
@@ -98,6 +102,25 @@ func (s *serverAPI) IsAdmin(
 	return &ssov1.IsAdminResponse{
 		IsAdmin: isAdmin,
 	}, nil
+}
+
+func (s *serverAPI) ValidateToken(
+	ctx context.Context,
+	req *ssov1.ValidateTokenRequest,
+) (*ssov1.ValidateTokenResponse, error) {
+	app, err := s.auth.GetApp(ctx, int(req.GetAppId()))
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidAppID) {
+			return nil, status.Error(codes.NotFound, "app not found")
+		}
+		return nil, status.Error(codes.Internal, "internal error")
+	}
+	token := req.GetToken()
+	userInfo, err := jwt.ValidateToken(token, app)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid token")
+	}
+	return &ssov1.ValidateTokenResponse{UserId: strconv.Itoa(userInfo.UserID), Email: userInfo.Email, IsValid: true}, nil
 }
 
 func validateRegister(req *ssov1.RegisterRequest) error {

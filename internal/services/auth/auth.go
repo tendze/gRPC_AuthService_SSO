@@ -39,8 +39,10 @@ type AppProvider interface {
 }
 
 var (
-	ErrInvalidAppID = errors.New("invalid app id")
-	ErrUserExists   = errors.New("user already exists")
+	ErrInvalidAppID       = errors.New("invalid app id")
+	ErrUserExists         = errors.New("user already exists")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 func New(
@@ -153,4 +155,26 @@ func (a *Auth) IsAdmin(
 	}
 	log.Info(fmt.Sprintf("checked if user with id=%d is admin", userID), slog.Bool("is_admin", isAdmin))
 	return isAdmin, nil
+}
+
+func (a *Auth) GetApp(
+	ctx context.Context,
+	appID int,
+) (models.App, error) {
+	const op = "auth.GetApp"
+	log := a.log.With(
+		slog.String("op", op),
+		slog.Int("app_id", appID),
+	)
+	log.Info("getting app by id")
+	app, err := a.appProvider.App(ctx, appID)
+	if err != nil {
+		if errors.Is(err, storage.ErrAppNotFound) {
+			log.Warn("app not found", sl.Err(err))
+			return models.App{}, fmt.Errorf("%s: %w", op, ErrInvalidAppID)
+		}
+		return models.App{}, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return app, nil
 }
